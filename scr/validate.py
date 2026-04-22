@@ -60,19 +60,27 @@ class Validate:
         return True
 
     def valida_campo(self) -> bool:
-        """Verifica se o campo solicitado é compatível com valor numérico"""
-        campo = self.item_buscar.strip().lower()
+        """Verifica se o campo buscado é uma string e não um número. O(1)"""
+        campo = self.item_buscar.strip()
         if not campo:
             self.erros.append("O campo buscado não pode ser vazio.")
             return False
-
-        nao_numericos = {"nome", "titulo", "descricao", "categoria", "imagem", "email", "endereco"}
-        if campo in nao_numericos:
-            self.erros.append(f"Campo '{self.item_buscar}' não é numérico.")
+ 
+        try:
+            int(campo)
+            self.erros.append(f"Campo '{campo}' inválido: informe um nome de campo, não um número.")
             return False
-
-        return True
-
+        except ValueError:
+            pass
+ 
+        try:
+            float(campo)
+            self.erros.append(f"Campo '{campo}' inválido: informe um nome de campo, não um número.")
+            return False
+        except ValueError:
+            return True
+        
+        
     def valida_timeout(self) -> bool:
         """Valida timeout"""
         try:
@@ -108,8 +116,6 @@ class Validate:
             "erros"   : list(self.erros),
         }
 
-
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     validate = Validate('https://b3.com.br/pt_br/para-voce', 12, 'Alice')
