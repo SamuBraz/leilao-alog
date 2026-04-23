@@ -1,5 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 import time
 
 class Monitor():
@@ -32,35 +33,45 @@ class Monitor():
     
 
     def buscar_elemento(self):
+        '''Busca elementos com base no elemento buscar.'''
+        elementos_correspondentes = []
         iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
         print(f"Total de iframes: {len(iframes)}")
 
         for i, iframe in enumerate(iframes):
             try:
                 self._driver.switch_to.frame(iframe)
-                spans = self._driver.find_elements(
+                elements = self._driver.find_elements(
                     By.XPATH,
-                    f"//span[contains(text(), '{self.item_buscar}')]"
+                    f"//*[contains(text(), '{self.item_buscar}')]"
                 )
 
-                if spans:
+                if elements:
                     print(f"✅ Encontrado no iframe {i}!")
-                    for s in spans:
+                    for s in elements:
                         print(f"  -> '{s.text}'")
-                    break
+                        elementos_correspondentes.append(s)
+                    self._driver.switch_to.default_content()
                 else:
                     self._driver.switch_to.default_content()
 
+            except NoSuchElementException:
+                print(f"  [iframe {i}] Elemento nao encontrado neste iframe.")
+                self._driver.switch_to.default_content()
             except Exception as e:
                 print(f"Erro no iframe {i}: {e}")
                 self._driver.switch_to.default_content()
+
+        return elementos_correspondentes
+    
+                
 
 
     def iniciar(self):
         self._driver = self._criar_driver()
         self._driver.get(self.url)
         time.sleep(8)  # aguarda carregamento inicia
-        self.buscar_elemento()
+        elementos = self.buscar_elemento()
 
 
 
@@ -71,7 +82,7 @@ if __name__ == '__main__':
 
     monitor = Monitor(
         url="https://b3.com.br/pt_br/para-voce",
-        item_buscar="Cogna Educacao S.A",
+        item_buscar="Petroleo Brasileiro SA Pfd",
         on_mudanca=ao_mudar,
         )
     monitor.iniciar()
