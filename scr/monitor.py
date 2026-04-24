@@ -71,17 +71,15 @@ class Monitor():
 
         numero_texto = self._extrair_numero_financeiro(texto)
         if numero_texto is not None:
-            print(f"    ✔ Padrão válido no texto  : '{texto}' → {numero_texto}")
             return numero_texto
 
         numero_value = self._extrair_numero_financeiro(value)
         if numero_value is not None:
-            print(f"    ✔ Padrão válido no value  : '{value}' → {numero_value}")
             return numero_value
 
         # Informa o que foi descartado para facilitar debug
         if texto or value:
-            print(f"    ✗ Descartado (fora do padrão) | texto: '{texto}' | value: '{value}'")
+            pass
         return None
 
     def _obter_xpath_elemento(self, elemento) -> str:
@@ -151,8 +149,6 @@ class Monitor():
                         pai = atual.find_element(By.XPATH, "..")
                     except:
                         break
-
-                    print(f"  [DOM nível {nivel}] varrendo descendentes...")
                     descendentes = pai.find_elements(By.XPATH, ".//*")
                     for desc in descendentes:
                         if desc == elemento:
@@ -235,9 +231,11 @@ class Monitor():
         elementos = self.buscar_elemento()
         _, xpath = self.buscar_valor(elementos)
 
-        print(self.valor_atual)
         if xpath:
+            print(f'Valor referente ao campo {self.buscar_elemento}: {self.valor_atual}')
             self.monitorar()
+
+        print(self.historico)
 
 
 if __name__ == '__main__':
