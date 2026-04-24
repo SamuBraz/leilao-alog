@@ -188,15 +188,21 @@ class Monitor():
         finally:
             self._driver.switch_to.default_content()
 
-    def monitorar(self, intervalo: int = 10):
+    def monitorar(self, intervalo: int = 10, timeout: int = 50):
         '''
         Loop de monitoração: atualiza a página a cada `intervalo` segundos,
         lê o campo pelo xpath salvo e dispara on_mudanca se o valor mudar.
-        Tempo real entre leituras ≈ intervalo + ~5s de carregamento.
+        Para ao atingir 2 mudanças ou `timeout` segundos, o que ocorrer primeiro.
         '''
-        print(f"\nMonitorando '{self.item_buscar}' | valor inicial: {self.valor_atual} | intervalo: {intervalo}s")
+        print(f"\nMonitorando '{self.item_buscar}' | valor inicial: {self.valor_atual} | intervalo: {intervalo}s | timeout: {timeout}s")
         mudancas = 0
+        inicio = time.time()
         while True:
+            decorrido = time.time() - inicio
+            if decorrido >= timeout:
+                print(f"[{time.strftime('%H:%M:%S')}] Timeout de {timeout}s atingido. Encerrando monitoração.")
+                break
+
             time.sleep(intervalo)
             try:
                 self._driver.refresh()
@@ -243,8 +249,8 @@ if __name__ == '__main__':
         print(f"\n>>> Preço mudou: {antigo:.2f} → {novo:.2f}\n")
 
     monitor = Monitor(
-        url="https://einvestidor.estadao.com.br/",
-        item_buscar="US 100 Cash CFD",
+        url="https://b3.com.br/pt_br/para-voce",
+        item_buscar="TBCC4L",
         on_mudanca=ao_mudar,
     )
     monitor.iniciar()

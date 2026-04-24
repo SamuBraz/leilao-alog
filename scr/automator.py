@@ -113,8 +113,8 @@ if __name__ == "__main__":
         print(f"\n>>> Mudança detectada: {antigo:,.2f} → {novo:,.2f}\n")
 
     monitor = Monitor(
-        url="https://einvestidor.estadao.com.br/",
-        item_buscar="US 100 Cash CFD",
+        url="https://b3.com.br/pt_br/para-voce",
+        item_buscar="TBCC4L",
         on_mudanca=ao_mudar,
     )
     monitor.iniciar()
