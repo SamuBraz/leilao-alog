@@ -4,7 +4,10 @@ from selenium.common.exceptions import NoSuchElementException
 import re
 import time
 
-REGEX_NUMERO = re.compile(r'\b\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?\b|\b\d+[.,]\d+\b')
+REGEX_FINANCEIRO = re.compile(
+    r'\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b'   # 1,000 ou 26,918.0
+    r'|\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b'  # 1.234 ou 1.234,56
+)
 
 class Monitor():
     def __init__(self, url: str, item_buscar: str, on_mudanca=None):
@@ -32,15 +35,52 @@ class Monitor():
         driver.maximize_window()
         return driver
 
-    def _extrair_numero_do_texto(self, texto: str) -> float | None:
-        '''Extrai o primeiro número financeiro de um texto via regex.'''
-        matches = REGEX_NUMERO.findall(texto)
+    def _extrair_numero_financeiro(self, texto: str) -> float | None:
+        '''
+        Extrai número apenas se bater no padrão financeiro válido:
+          - 1,000        (milhar com vírgula)
+          - 26,918.0     (milhar com vírgula + decimal com ponto)
+          - 1.234,56     (padrão BR: milhar com ponto + decimal com vírgula)
+        Retorna None se o texto não bater em nenhum desses padrões.
+        '''
+        matches = REGEX_FINANCEIRO.findall(texto)
         for m in matches:
             try:
-                normalizado = m.replace('.', '').replace(',', '.')
+                # Padrão BR: milhar=ponto, decimal=vírgula → 1.234,56
+                if re.match(r'^\d{1,3}(\.\d{3})+(,\d+)?$', m):
+                    normalizado = m.replace('.', '').replace(',', '.')
+                # Padrão EN: milhar=vírgula, decimal=ponto → 1,000 ou 26,918.0
+                elif re.match(r'^\d{1,3}(,\d{3})+(\.\d+)?$', m):
+                    normalizado = m.replace(',', '')
+                else:
+                    continue
                 return float(normalizado)
             except ValueError:
                 continue
+        return None
+
+    def _verificar_fonte(self, elemento) -> float | None:
+        '''
+        Verifica texto visível e atributo value do elemento.
+        Prioriza texto; usa value como fallback.
+        Retorna o valor apenas se bater no padrão financeiro.
+        '''
+        texto  = (elemento.text or "").strip()
+        value  = (elemento.get_attribute("value") or "").strip()
+
+        numero_texto = self._extrair_numero_financeiro(texto)
+        if numero_texto is not None:
+            print(f"    ✔ Padrão válido no texto  : '{texto}' → {numero_texto}")
+            return numero_texto
+
+        numero_value = self._extrair_numero_financeiro(value)
+        if numero_value is not None:
+            print(f"    ✔ Padrão válido no value  : '{value}' → {numero_value}")
+            return numero_value
+
+        # Informa o que foi descartado para facilitar debug
+        if texto or value:
+            print(f"    ✗ Descartado (fora do padrão) | texto: '{texto}' | value: '{value}'")
         return None
 
     def buscar_elemento(self):
@@ -75,7 +115,8 @@ class Monitor():
         Dado o label encontrado, tenta achar o valor numérico vizinho.
         Combina duas estratégias:
           1) Atributos semânticos (data-*, aria-*, classes CSS)
-          2) Subida no DOM filtrando descendentes com regex numérico
+          2) Subida no DOM filtrando descendentes com regex financeiro
+        Em ambas, só aceita valores que batam no padrão financeiro.
         '''
         iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
 
@@ -85,8 +126,6 @@ class Monitor():
                 print(f"\nELEMENTO: '{elemento.text}' | tag: {elemento.tag_name}")
 
                 # ── Estratégia 1: atributos semânticos ──────────────────────
-                # Sobe níveis procurando um container com data-* ou aria-*
-                # que indique preço, e extrai o valor do texto ou atributo
                 chaves_preco = {"price", "value", "last", "close",
                                 "bid", "ask", "rate", "quote", "preco", "valor"}
                 atual = elemento
@@ -101,25 +140,21 @@ class Monitor():
                         if desc == elemento:
                             continue
 
-                        # Verifica atributos data-* e aria-*
                         for attr in ["data-field", "data-type", "data-name",
                                      "aria-label", "class", "id"]:
                             try:
                                 val_attr = (desc.get_attribute(attr) or "").lower()
                                 if any(chave in val_attr for chave in chaves_preco):
-                                    texto = desc.text.strip() or desc.get_attribute("value") or ""
-                                    numero = self._extrair_numero_do_texto(texto)
+                                    print(f"  [Atributo '{attr}' nível {nivel}] candidato encontrado")
+                                    numero = self._verificar_fonte(desc)
                                     if numero is not None:
-                                        print(f"  [Atributo '{attr}' nível {nivel}] "
-                                              f"Valor: {numero} | texto: '{texto}'")
-                                        self.valor_atual = str(texto)
+                                        self.valor_atual = numero
                                         return numero
+                                    # padrão inválido → continua subindo
                             except:
                                 continue
 
                 # ── Estratégia 2: subida no DOM + regex nos descendentes ─────
-                # Sobe níveis e varre todos os descendentes do pai
-                # filtrando qualquer texto que bata com padrão numérico
                 atual = elemento
                 for nivel in range(1, 6):
                     try:
@@ -127,19 +162,16 @@ class Monitor():
                     except:
                         break
 
+                    print(f"  [DOM nível {nivel}] varrendo descendentes...")
                     descendentes = pai.find_elements(By.XPATH, ".//*")
                     for desc in descendentes:
                         if desc == elemento:
                             continue
                         try:
-                            texto = desc.text.strip()
-                            if not texto:
-                                continue
-                            numero = self._extrair_numero_do_texto(texto)
+                            numero = self._verificar_fonte(desc)
                             if numero is not None:
-                                print(f"  [DOM nível {nivel}] "
-                                      f"Valor: {numero} | texto: '{texto}' | tag: {desc.tag_name}")
-                                self.valor_atual = str(texto)
+                                print(f"  [DOM nível {nivel}] ✅ Valor aceito: {numero} | tag: {desc.tag_name}")
+                                self.valor_atual = numero
                                 return numero
                         except:
                             continue
@@ -160,7 +192,7 @@ class Monitor():
         elementos = self.buscar_elemento()
         self.buscar_valor(elementos)
 
-        print(f'valor atual do {self.item_buscar} {self.valor_atual}')
+        print(self.valor_atual)
 
 
 if __name__ == '__main__':
@@ -168,8 +200,8 @@ if __name__ == '__main__':
         print(f"\n>>> Preço mudou: {antigo:.2f} → {novo:.2f}\n")
 
     monitor = Monitor(
-        url="https://b3.com.br/pt_br/para-voce",
-        item_buscar="TERRA BRAVIAPN",
+        url="https://einvestidor.estadao.com.br/",
+        item_buscar="Bitcoin / U.S. Dollar",
         on_mudanca=ao_mudar,
     )
     monitor.iniciar()
