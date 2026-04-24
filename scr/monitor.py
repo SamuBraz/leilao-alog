@@ -1,8 +1,13 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+import logging
 import re
 import time
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+
+log = logging.getLogger(__name__)
 
 REGEX_FINANCEIRO = re.compile(
     r'\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b'   # 1,000 ou 26,918.0
@@ -31,9 +36,14 @@ class Monitor():
         )
 
     def _criar_driver(self) -> webdriver.Chrome:
-        '''Inicia o Chrome'''
-        driver = webdriver.Chrome()
+        log.info("Iniciando Chrome...")
+        options = Options()
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        driver = webdriver.Chrome(options=options)
+        driver.set_page_load_timeout(self.timeout)
         driver.maximize_window()
+        log.info("Chrome iniciado.")
         return driver
 
     def _extrair_numero_financeiro(self, texto: str) -> float | None:
@@ -77,7 +87,6 @@ class Monitor():
         if numero_value is not None:
             return numero_value
 
-        # Informa o que foi descartado para facilitar debug
         if texto or value:
             pass
         return None
@@ -102,9 +111,10 @@ class Monitor():
 
     def buscar_elemento(self):
         '''Busca elementos com base no item_buscar, varrendo iframes.'''
+        log.info("Buscando elemento '%s' na página...", self.item_buscar)
         elementos_correspondentes = []
         iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
-        print(f"Total de iframes: {len(iframes)}")
+        log.info("Total de iframes: %d", len(iframes))
 
         for i, iframe in enumerate(iframes):
             try:
@@ -114,14 +124,14 @@ class Monitor():
                     f"//*[contains(text(), '{self.item_buscar}')]"
                 )
                 if elements:
-                    print(f"✅ Encontrado no iframe {i}!")
+                    log.info("Encontrado no iframe %d!", i)
                     for s in elements:
-                        print(f"  -> '{s.text}'")
+                        log.info("  -> '%s'", s.text)
                         elementos_correspondentes.append((i, s))
             except NoSuchElementException:
-                print(f"  [iframe {i}] Elemento não encontrado neste iframe.")
+                log.debug("[iframe %d] Elemento não encontrado.", i)
             except Exception as e:
-                print(f"Erro no iframe {i}: {e}")
+                log.warning("Erro no iframe %d: %s", i, e)
             finally:
                 self._driver.switch_to.default_content()
 
@@ -134,13 +144,13 @@ class Monitor():
           2) Subida no DOM filtrando descendentes com regex financeiro
         Em ambas, só aceita valores que batam no padrão financeiro.
         '''
+        log.info("Buscando valor numérico associado ao elemento...")
         iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
 
-        
         for iframe_index, elemento in reversed(elementos_correspondentes):
             try:
                 self._driver.switch_to.frame(iframes[iframe_index])
-                print(f"\nELEMENTO: '{elemento.text}' | tag: {elemento.tag_name}")
+                log.info("ELEMENTO: '%s' | tag: %s", elemento.text, elemento.tag_name)
 
                 # ── Estratégia 1: subida na hierarquia html─────
                 atual = elemento
@@ -156,7 +166,7 @@ class Monitor():
                         try:
                             numero = self._verificar_fonte(desc)
                             if numero is not None:
-                                print(f"  [DOM nível {nivel}] ✅ Valor aceito: {numero} | tag: {desc.tag_name}")
+                                log.info("[DOM nível %d] Valor aceito: %s | tag: %s", nivel, numero, desc.tag_name)
                                 self.valor_atual = numero
                                 self.iframe_index_encontrado = iframe_index
                                 self.xpath_encontrado = self._obter_xpath_elemento(desc)
@@ -166,11 +176,11 @@ class Monitor():
                     atual = pai
 
             except Exception as e:
-                print(f"Erro ao acessar iframe {iframe_index}: {e}")
+                log.error("Erro ao acessar iframe %d: %s", iframe_index, e)
             finally:
                 self._driver.switch_to.default_content()
 
-        print("⚠️  Valor não encontrado por nenhuma estratégia.")
+        log.warning("Valor não encontrado por nenhuma estratégia.")
         return None, None
 
     def _ler_valor_no_xpath(self) -> float | None:
@@ -183,7 +193,7 @@ class Monitor():
             elemento = self._driver.find_element(By.XPATH, self.xpath_encontrado)
             return self._verificar_fonte(elemento)
         except Exception as e:
-            print(f"Erro ao reler valor: {e}")
+            log.error("Erro ao reler valor: %s", e)
             return None
         finally:
             self._driver.switch_to.default_content()
@@ -194,26 +204,28 @@ class Monitor():
         lê o campo pelo xpath salvo e dispara on_mudanca se o valor mudar.
         Para ao atingir 2 mudanças ou `timeout` segundos, o que ocorrer primeiro.
         '''
-        print(f"\nMonitorando '{self.item_buscar}' | valor inicial: {self.valor_atual} | intervalo: {intervalo}s | timeout: {timeout}s")
+        log.info("Monitorando '%s' | valor inicial: %s | intervalo: %ds | timeout: %ds",
+                 self.item_buscar, self.valor_atual, intervalo, timeout)
         mudancas = 0
         inicio = time.time()
         while True:
             decorrido = time.time() - inicio
             if decorrido >= timeout:
-                print(f"[{time.strftime('%H:%M:%S')}] Timeout de {timeout}s atingido. Encerrando monitoração.")
+                log.info("Timeout de %ds atingido. Encerrando monitoração.", timeout)
                 break
 
             time.sleep(intervalo)
             try:
+                log.info("Atualizando página...")
                 self._driver.refresh()
                 time.sleep(5)
                 novo_valor = self._ler_valor_no_xpath()
             except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Erro durante monitoração: {e}")
+                log.error("Erro durante monitoração: %s", e)
                 continue
 
             if novo_valor is None:
-                print(f"[{time.strftime('%H:%M:%S')}] ⚠️  Não foi possível ler o valor.")
+                log.warning("Não foi possível ler o valor.")
                 continue
 
             if novo_valor != self.valor_atual:
@@ -221,24 +233,29 @@ class Monitor():
                 self.valor_atual = novo_valor
                 self.historico.append((time.time(), antigo, novo_valor))
                 mudancas += 1
-                print(f"[{time.strftime('%H:%M:%S')}] Mudança {mudancas}/2: {antigo} → {novo_valor}")
+                log.info("Mudança %d/2: %s → %s", mudancas, antigo, novo_valor)
                 if self.on_mudanca:
                     self.on_mudanca(antigo, novo_valor)
                 if mudancas >= 2:
-                    print("Duas mudanças detectadas. Encerrando monitoração.")
+                    log.info("Duas mudanças detectadas. Encerrando monitoração.")
                     break
             else:
-                print(f"[{time.strftime('%H:%M:%S')}] Sem mudança: {self.valor_atual}")
+                log.info("Sem mudança: %s", self.valor_atual)
 
     def iniciar(self):
+        log.info("=== Iniciando monitor ===")
         self._driver = self._criar_driver()
-        self._driver.get(self.url)
+        try:
+            log.info("Abrindo URL '%s'...", self.url)
+            self._driver.get(self.url)
+        except TimeoutException:
+            log.warning("Page load timeout (%ss) — continuando com o que foi carregado.", self.timeout)
         time.sleep(30)
         elementos = self.buscar_elemento()
         _, xpath = self.buscar_valor(elementos)
 
         if xpath:
-            print(f'Valor referente ao campo {self.buscar_elemento}: {self.valor_atual}')
+            log.info("Valor referente ao campo '%s': %s", self.item_buscar, self.valor_atual)
             self.monitorar()
 
-        print(self.historico)
+        log.info("Histórico de mudanças: %s", self.historico)

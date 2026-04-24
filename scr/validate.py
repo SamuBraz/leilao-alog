@@ -131,12 +131,12 @@ class Validate:
         driver = None
         try:
             log.info("Iniciando Chrome (headless)...")
-            driver = webdriver.Chrome()
+            driver = webdriver.Chrome(options=options)
             log.info("Acessando '%s'...", self.url.strip())
             driver.get(self.url.strip())
             log.info("Aguardando página carregar (timeout: %ss)...", self.timeout)
             try:
-                WebDriverWait(driver, 15).until(
+                WebDriverWait(driver, self.timeout).until(
                     lambda d: d.execute_script("return document.readyState") == "complete"
                 )
             except TimeoutException:
@@ -153,7 +153,7 @@ class Validate:
             raise Exception(f"Erro ao abrir o navegador para '{self.url}': {e.msg}.") from e
         except Exception as e:
             log.error("Erro inesperado ao acessar a URL: %s", e)
-            raise Exception(f"Erro inesperado ao acessar '{self.url}': {e}.") from e
+            raise Exception(f"Erro ao acessar o site '{self.url}': {e}.") from e
         finally:
             if driver:
                 log.info("Encerrando navegador.")
