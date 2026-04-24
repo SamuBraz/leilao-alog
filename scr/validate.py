@@ -1,4 +1,6 @@
 import re
+import urllib.request
+import urllib.error
 from urllib.parse import urlparse
 
 
@@ -24,6 +26,7 @@ class Validate:
         self.nome_usuario = nome_usuario
         self.timeout = 30.0
         self.erros: list[str] = []
+        self.avisos: list[str] = []
 
     def __str__(self):
         return (
@@ -81,6 +84,25 @@ class Validate:
             return True
         
         
+    def valida_acesso_url(self) -> bool:
+        """Tenta acessar a URL e verificar se carrega dentro do timeout. Gera aviso se falhar."""
+        if not self.valida_url():
+            return False
+
+        try:
+            req = urllib.request.Request(self.url.strip(), headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=self.timeout):
+                pass
+            return True
+        except urllib.error.HTTPError as e:
+            raise Exception(f"URL retornou erro HTTP {e.code}: '{self.url}'.") from e
+        except urllib.error.URLError as e:
+            raise Exception(f"URL inacessível: '{self.url}'. Motivo: {e.reason}.") from e
+        except TimeoutError as e:
+            raise Exception(f"URL não respondeu dentro de {self.timeout}s: '{self.url}'.") from e
+        except Exception as e:
+            raise Exception(f"Erro ao acessar URL '{self.url}': {e}.") from e
+
     def valida_timeout(self) -> bool:
         """Valida timeout"""
         try:
@@ -105,15 +127,18 @@ class Validate:
         dict com chaves 'valido' (bool) e 'erros' (list[str])
         """
         self.erros.clear()
+        self.avisos.clear()
         resultados = {
             "nome"    : self.valida_nome(),
             "url"     : self.valida_url(),
             "campo"   : self.valida_campo(),
             "timeout" : self.valida_timeout(),
         }
+        self.valida_acesso_url()
         return {
             "valido"  : all(resultados.values()),
             "erros"   : list(self.erros),
+            "avisos"  : list(self.avisos),
         }
 
 

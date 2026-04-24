@@ -233,7 +233,7 @@ class Monitor():
     def iniciar(self):
         self._driver = self._criar_driver()
         self._driver.get(self.url)
-        time.sleep(10)
+        time.sleep(30)
         elementos = self.buscar_elemento()
         _, xpath = self.buscar_valor(elementos)
 
