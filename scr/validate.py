@@ -1,7 +1,21 @@
-import re
-import urllib.request
-import urllib.error
+import logging
 from urllib.parse import urlparse
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, WebDriverException
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+
+class PaginaNaoCarregadaError(Exception):
+    """Levantada quando a página não carrega por completo dentro do tempo limite."""
+    pass
 
 
 class Validate:
@@ -38,94 +52,142 @@ class Validate:
 
     def valida_nome(self) -> bool:
         """Valida nome do usuário"""
+        log.info("Validando nome do usuário...")
         nome = self.nome_usuario.strip()
         if len(nome) < 3:
-            self.erros.append(f"Nome '{nome}' inválido: mínimo 3 caracteres.")
+            msg = f"Nome '{nome}' inválido: mínimo 3 caracteres."
+            self.erros.append(msg)
+            log.error("Nome inválido — %s", msg)
             return False
+        log.info("Nome '%s' OK.", nome)
         return True
 
     def valida_url(self) -> bool:
         """Valida URL: esquema http/https e domínio presente."""
+        log.info("Validando URL...")
         url = self.url.strip()
         if not url:
-            self.erros.append("URL não pode ser vazia.")
+            msg = "URL não pode ser vazia."
+            self.erros.append(msg)
+            log.error(msg)
             return False
 
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
-            self.erros.append(f"Esquema inválido: '{parsed.scheme}'. Use http ou https.")
+            msg = f"Esquema inválido: '{parsed.scheme}'. Use http ou https."
+            self.erros.append(msg)
+            log.error(msg)
             return False
 
         if not parsed.netloc:
-            self.erros.append(f"URL sem domínio: '{url}'.")
+            msg = f"URL sem domínio: '{url}'."
+            self.erros.append(msg)
+            log.error(msg)
             return False
 
+        log.info("URL '%s' OK.", url)
         return True
 
     def valida_campo(self) -> bool:
         """Verifica se o campo buscado é uma string e não um número. O(1)"""
+        log.info("Validando campo buscado...")
         campo = self.item_buscar.strip()
         if not campo:
-            self.erros.append("O campo buscado não pode ser vazio.")
+            msg = "O campo buscado não pode ser vazio."
+            self.erros.append(msg)
+            log.error(msg)
             return False
- 
+
         try:
             int(campo)
-            self.erros.append(f"Campo '{campo}' inválido: informe um nome de campo, não um número.")
+            msg = f"Campo '{campo}' inválido: informe um nome de campo, não um número."
+            self.erros.append(msg)
+            log.error(msg)
             return False
         except ValueError:
             pass
- 
+
         try:
             float(campo)
-            self.erros.append(f"Campo '{campo}' inválido: informe um nome de campo, não um número.")
+            msg = f"Campo '{campo}' inválido: informe um nome de campo, não um número."
+            self.erros.append(msg)
+            log.error(msg)
             return False
         except ValueError:
+            log.info("Campo '%s' OK.", campo)
             return True
-        
-        
+
     def valida_acesso_url(self) -> bool:
-        """Tenta acessar a URL e verificar se carrega dentro do timeout. Gera aviso se falhar."""
+        """Abre a URL com Selenium e verifica se a página carrega completamente antes do timeout."""
+        log.info("Verificando acesso à URL via navegador...")
         if not self.valida_url():
             return False
 
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+
+        driver = None
         try:
-            req = urllib.request.Request(self.url.strip(), headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=self.timeout):
-                pass
+            log.info("Iniciando Chrome (headless)...")
+            driver = webdriver.Chrome()
+            log.info("Acessando '%s'...", self.url.strip())
+            driver.get(self.url.strip())
+            log.info("Aguardando página carregar (timeout: %ss)...", self.timeout)
+            try:
+                WebDriverWait(driver, 15).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete"
+                )
+            except TimeoutException:
+                raise PaginaNaoCarregadaError(
+                    f"A página '{self.url}' não carregou por completo dentro de {self.timeout}s."
+                )
+            log.info("Página carregada com sucesso.")
             return True
-        except urllib.error.HTTPError as e:
-            raise Exception(f"URL retornou erro HTTP {e.code}: '{self.url}'.") from e
-        except urllib.error.URLError as e:
-            raise Exception(f"URL inacessível: '{self.url}'. Motivo: {e.reason}.") from e
-        except TimeoutError as e:
-            raise Exception(f"URL não respondeu dentro de {self.timeout}s: '{self.url}'.") from e
+        except PaginaNaoCarregadaError:
+            log.error("Timeout: página não carregou dentro de %ss.", self.timeout)
+            raise
+        except WebDriverException as e:
+            log.error("Erro no navegador: %s", e.msg)
+            raise Exception(f"Erro ao abrir o navegador para '{self.url}': {e.msg}.") from e
         except Exception as e:
-            raise Exception(f"Erro ao acessar URL '{self.url}': {e}.") from e
+            log.error("Erro inesperado ao acessar a URL: %s", e)
+            raise Exception(f"Erro inesperado ao acessar '{self.url}': {e}.") from e
+        finally:
+            if driver:
+                log.info("Encerrando navegador.")
+                driver.quit()
 
     def valida_timeout(self) -> bool:
         """Valida timeout"""
+        log.info("Validando timeout...")
         try:
             valor = float(self.timeout)
         except (TypeError, ValueError):
-            self.erros.append(f"Timeout '{self.timeout}' não é um número válido.")
+            msg = f"Timeout '{self.timeout}' não é um número válido."
+            self.erros.append(msg)
+            log.error(msg)
             return False
 
         if not (1.0 <= valor <= 3600.0):
-            self.erros.append(f"Timeout {valor}s fora do intervalo permitido (1s a 3600s).")
+            msg = f"Timeout {valor}s fora do intervalo permitido (1s a 3600s)."
+            self.erros.append(msg)
+            log.error(msg)
             return False
 
+        log.info("Timeout %.1fs OK.", valor)
         return True
-
 
     def valida(self) -> dict:
         """
-        Executa todas as validações e retorna relatório consolidado. 
+        Executa todas as validações e retorna relatório consolidado.
 
         Returns
         -------
         dict com chaves 'valido' (bool) e 'erros' (list[str])
         """
+        log.info("=== Iniciando validação ===")
         self.erros.clear()
         self.avisos.clear()
         resultados = {
@@ -135,10 +197,13 @@ class Validate:
             "timeout" : self.valida_timeout(),
         }
         self.valida_acesso_url()
+        valido = all(resultados.values())
+        if valido:
+            log.info("=== Validação concluída: tudo OK ===")
+        else:
+            log.error("=== Validação concluída com erros: %s ===", self.erros)
         return {
-            "valido"  : all(resultados.values()),
+            "valido"  : valido,
             "erros"   : list(self.erros),
             "avisos"  : list(self.avisos),
         }
-
-
