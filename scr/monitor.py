@@ -242,15 +242,3 @@ class Monitor():
             self.monitorar()
 
         print(self.historico)
-
-
-if __name__ == '__main__':
-    def ao_mudar(antigo, novo):
-        print(f"\n>>> Preço mudou: {antigo:.2f} → {novo:.2f}\n")
-
-    monitor = Monitor(
-        url="https://b3.com.br/pt_br/para-voce",
-        item_buscar="TBCC4L",
-        on_mudanca=ao_mudar,
-    )
-    monitor.iniciar()

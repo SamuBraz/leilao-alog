@@ -107,21 +107,3 @@ class Automator:
         print("Formulário enviado com sucesso.")
         time.sleep(2)
 
-
-if __name__ == "__main__":
-    def ao_mudar(antigo, novo):
-        print(f"\n>>> Mudança detectada: {antigo:,.2f} → {novo:,.2f}\n")
-
-    monitor = Monitor(
-        url="https://b3.com.br/pt_br/para-voce",
-        item_buscar="TBCC4L",
-        on_mudanca=ao_mudar,
-    )
-    monitor.iniciar()
-
-    automator = Automator(driver=monitor._driver)
-    automator.enviar_resultado(
-        monitor.item_buscar,
-        monitor.historico,
-        monitor.valor_atual,
-    )

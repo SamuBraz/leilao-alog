@@ -142,9 +142,3 @@ class Validate:
         }
 
 
-if __name__ == "__main__":
-    validate = Validate('https://b3.com.br/pt_br/para-voce', 12, 'Alice')
-    print(validate)
-    resultado = validate.valida()
-    print("Válido:", resultado["valido"])
-    print("Erros: ", resultado["erros"])
