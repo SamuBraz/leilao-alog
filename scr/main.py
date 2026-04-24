@@ -1,7 +1,11 @@
+import logging
+
 from ui import UI
 from validate import Validate
 from monitor import Monitor
 from automator import Automator
+
+log = logging.getLogger(__name__)
 
 
 def main():
@@ -18,14 +22,14 @@ def main():
     resultado = validate.valida()
 
     if not resultado["valido"]:
-        print("Erros de validação:")
+        log.error("Erros de validação:")
         for erro in resultado["erros"]:
-            print(f"  - {erro}")
+            log.error("  - %s", erro)
         return
 
     # 3. Monitoramento
     def ao_mudar(antigo, novo):
-        print(f"\n>>> Mudança detectada: {antigo:,.2f} → {novo:,.2f}\n")
+        log.info("Mudança detectada: %s → %s", f"{antigo:,.2f}", f"{novo:,.2f}")
 
     monitor = Monitor(
         url=dados["url"],
@@ -40,6 +44,7 @@ def main():
         monitor.item_buscar,
         monitor.historico,
         monitor.valor_atual,
+        username=dados["nome_usuario"],
     )
 
 

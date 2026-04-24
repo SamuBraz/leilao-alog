@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime
 
@@ -8,10 +9,12 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from monitor import Monitor
 
+log = logging.getLogger(__name__)
+
 FORM_URL = "https://forms.gle/Rg6WJkKy8XP6eDvr8"
 
 
-def _mensagem_sem_mudanca(item_buscar: str, valor: float) -> str:
+def _mensagem_sem_mudanca(item_buscar: str, valor: float, username: str) -> str:
     return (
         f"Assunto: Monitoramento Concluído — Sem Alterações\n"
         f"\n"
@@ -23,11 +26,13 @@ def _mensagem_sem_mudanca(item_buscar: str, valor: float) -> str:
         f"Valor observado: {valor:,.2f}\n"
         f"\n"
         f"Atenciosamente,\n"
-        f"Sistema de Monitoramento de Leilão"
+        f"Sistema de Monitoramento de Leilão\n"
+        f"\n"
+        f"Relatório gerado com pedido do usuário {username}"
     )
 
 
-def _mensagem_com_mudanca(item_buscar: str, historico: list[tuple]) -> str:
+def _mensagem_com_mudanca(item_buscar: str, historico: list[tuple], username: str) -> str:
     linhas = [
         f"Assunto: Alerta — Alteração Detectada em \"{item_buscar}\"",
         "",
@@ -49,6 +54,8 @@ def _mensagem_com_mudanca(item_buscar: str, historico: list[tuple]) -> str:
         "",
         "Atenciosamente,",
         "Sistema de Monitoramento de Leilão",
+        "",
+        f"Relatório gerado com pedido do usuário {username}",
     ]
     return "\n".join(linhas)
 
@@ -58,6 +65,7 @@ class Automator:
         self._driver = driver
 
     def _preencher_campo(self, label: str, valor: str):
+        log.info("Preenchendo campo '%s'...", label)
         seletores = [
             (By.XPATH, f"//input[@aria-label='{label}']"),
             (By.XPATH, f"//textarea[@aria-label='{label}']"),
@@ -73,23 +81,26 @@ class Automator:
                 )
                 campo.clear()
                 campo.send_keys(valor)
+                log.info("Campo '%s' preenchido.", label)
                 return
             except Exception:
                 continue
 
         inputs = self._driver.find_elements(By.XPATH, "//input | //textarea")
-        print(f"  [debug] inputs na página ({len(inputs)}):")
+        log.debug("Inputs na página (%d):", len(inputs))
         for el in inputs:
-            print(f"    tag={el.tag_name} | aria-label='{el.get_attribute('aria-label')}' | type='{el.get_attribute('type')}'")
+            log.debug("  tag=%s | aria-label='%s' | type='%s'",
+                      el.tag_name, el.get_attribute("aria-label"), el.get_attribute("type"))
         raise Exception(f"Campo '{label}' não encontrado no formulário.")
 
-    def enviar_resultado(self, item_buscar: str, historico: list[tuple], valor_atual: float):
+    def enviar_resultado(self, item_buscar: str, historico: list[tuple], valor_atual: float, username: str):
+        log.info("Gerando mensagem do relatório...")
         if historico:
-            mensagem = _mensagem_com_mudanca(item_buscar, historico)
+            mensagem = _mensagem_com_mudanca(item_buscar, historico, username)
         else:
-            mensagem = _mensagem_sem_mudanca(item_buscar, valor_atual)
+            mensagem = _mensagem_sem_mudanca(item_buscar, valor_atual, username)
 
-        print(f"\nEnviando resultado ao formulário...\n{mensagem}\n")
+        log.info("Enviando resultado ao formulário...\n%s", mensagem)
 
         self._driver.get(FORM_URL)
         WebDriverWait(self._driver, 15).until(
@@ -98,12 +109,12 @@ class Automator:
 
         self._preencher_campo("Resultado", mensagem)
 
+        log.info("Clicando em Enviar...")
         botao_enviar = WebDriverWait(self._driver, 10).until(
             EC.element_to_be_clickable(
                 (By.XPATH, "//span[normalize-space()='Enviar']/..")
             )
         )
         botao_enviar.click()
-        print("Formulário enviado com sucesso.")
+        log.info("Formulário enviado com sucesso.")
         time.sleep(2)
-
