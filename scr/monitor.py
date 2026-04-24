@@ -114,47 +114,18 @@ class Monitor():
         '''
         Dado o label encontrado, tenta achar o valor numérico vizinho.
         Combina duas estratégias:
-          1) Atributos semânticos (data-*, aria-*, classes CSS)
           2) Subida no DOM filtrando descendentes com regex financeiro
         Em ambas, só aceita valores que batam no padrão financeiro.
         '''
         iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
 
-        for iframe_index, elemento in elementos_correspondentes:
+        
+        for iframe_index, elemento in reversed(elementos_correspondentes):
             try:
                 self._driver.switch_to.frame(iframes[iframe_index])
                 print(f"\nELEMENTO: '{elemento.text}' | tag: {elemento.tag_name}")
 
-                # ── Estratégia 1: atributos semânticos ──────────────────────
-                chaves_preco = {"price", "value", "last", "close",
-                                "bid", "ask", "rate", "quote", "preco", "valor"}
-                atual = elemento
-                for nivel in range(1, 6):
-                    try:
-                        atual = atual.find_element(By.XPATH, "..")
-                    except:
-                        break
-
-                    descendentes = atual.find_elements(By.XPATH, ".//*")
-                    for desc in descendentes:
-                        if desc == elemento:
-                            continue
-
-                        for attr in ["data-field", "data-type", "data-name",
-                                     "aria-label", "class", "id"]:
-                            try:
-                                val_attr = (desc.get_attribute(attr) or "").lower()
-                                if any(chave in val_attr for chave in chaves_preco):
-                                    print(f"  [Atributo '{attr}' nível {nivel}] candidato encontrado")
-                                    numero = self._verificar_fonte(desc)
-                                    if numero is not None:
-                                        self.valor_atual = numero
-                                        return numero
-                                    # padrão inválido → continua subindo
-                            except:
-                                continue
-
-                # ── Estratégia 2: subida no DOM + regex nos descendentes ─────
+                # ── Estratégia 1: subida na hierarquia html─────
                 atual = elemento
                 for nivel in range(1, 6):
                     try:
@@ -201,7 +172,7 @@ if __name__ == '__main__':
 
     monitor = Monitor(
         url="https://einvestidor.estadao.com.br/",
-        item_buscar="Bitcoin / U.S. Dollar",
+        item_buscar="US 100 Cash CFD",
         on_mudanca=ao_mudar,
     )
     monitor.iniciar()
