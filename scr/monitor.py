@@ -17,6 +17,7 @@ class Monitor():
         self.on_mudanca = on_mudanca
 
         self.xpath_encontrado: str | None = None
+        self.iframe_index_encontrado: int | None = None
         self.valor_atual: float | None = None
         self.historico: list[tuple] = []
         self._driver: webdriver.Chrome | None = None
@@ -83,6 +84,24 @@ class Monitor():
             print(f"    ✗ Descartado (fora do padrão) | texto: '{texto}' | value: '{value}'")
         return None
 
+    def _obter_xpath_elemento(self, elemento) -> str:
+        '''Retorna o XPath absoluto do elemento via JavaScript.'''
+        return self._driver.execute_script("""
+            function getXPath(el) {
+                if (!el) return '';
+                if (el.id) return '//' + el.tagName.toLowerCase() + '[@id="' + el.id + '"]';
+                var parts = [];
+                while (el && el.nodeType === 1) {
+                    var idx = 1, s = el.previousElementSibling;
+                    while (s) { if (s.tagName === el.tagName) idx++; s = s.previousElementSibling; }
+                    parts.unshift(el.tagName.toLowerCase() + '[' + idx + ']');
+                    el = el.parentElement;
+                }
+                return '/' + parts.join('/');
+            }
+            return getXPath(arguments[0]);
+        """, elemento)
+
     def buscar_elemento(self):
         '''Busca elementos com base no item_buscar, varrendo iframes.'''
         elementos_correspondentes = []
@@ -143,7 +162,9 @@ class Monitor():
                             if numero is not None:
                                 print(f"  [DOM nível {nivel}] ✅ Valor aceito: {numero} | tag: {desc.tag_name}")
                                 self.valor_atual = numero
-                                return numero
+                                self.iframe_index_encontrado = iframe_index
+                                self.xpath_encontrado = self._obter_xpath_elemento(desc)
+                                return numero, self.xpath_encontrado
                         except:
                             continue
                     atual = pai
@@ -154,16 +175,69 @@ class Monitor():
                 self._driver.switch_to.default_content()
 
         print("⚠️  Valor não encontrado por nenhuma estratégia.")
-        return None
+        return None, None
+
+    def _ler_valor_no_xpath(self) -> float | None:
+        '''Lê o valor diretamente pelo xpath salvo, sem varrer o DOM todo.'''
+        if self.xpath_encontrado is None or self.iframe_index_encontrado is None:
+            return None
+        iframes = self._driver.find_elements(By.TAG_NAME, "iframe")
+        try:
+            self._driver.switch_to.frame(iframes[self.iframe_index_encontrado])
+            elemento = self._driver.find_element(By.XPATH, self.xpath_encontrado)
+            return self._verificar_fonte(elemento)
+        except Exception as e:
+            print(f"Erro ao reler valor: {e}")
+            return None
+        finally:
+            self._driver.switch_to.default_content()
+
+    def monitorar(self, intervalo: int = 10):
+        '''
+        Loop de monitoração: atualiza a página a cada `intervalo` segundos,
+        lê o campo pelo xpath salvo e dispara on_mudanca se o valor mudar.
+        Tempo real entre leituras ≈ intervalo + ~5s de carregamento.
+        '''
+        print(f"\nMonitorando '{self.item_buscar}' | valor inicial: {self.valor_atual} | intervalo: {intervalo}s")
+        mudancas = 0
+        while True:
+            time.sleep(intervalo)
+            try:
+                self._driver.refresh()
+                time.sleep(5)
+                novo_valor = self._ler_valor_no_xpath()
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] Erro durante monitoração: {e}")
+                continue
+
+            if novo_valor is None:
+                print(f"[{time.strftime('%H:%M:%S')}] ⚠️  Não foi possível ler o valor.")
+                continue
+
+            if novo_valor != self.valor_atual:
+                antigo = self.valor_atual
+                self.valor_atual = novo_valor
+                self.historico.append((time.time(), antigo, novo_valor))
+                mudancas += 1
+                print(f"[{time.strftime('%H:%M:%S')}] Mudança {mudancas}/2: {antigo} → {novo_valor}")
+                if self.on_mudanca:
+                    self.on_mudanca(antigo, novo_valor)
+                if mudancas >= 2:
+                    print("Duas mudanças detectadas. Encerrando monitoração.")
+                    break
+            else:
+                print(f"[{time.strftime('%H:%M:%S')}] Sem mudança: {self.valor_atual}")
 
     def iniciar(self):
         self._driver = self._criar_driver()
         self._driver.get(self.url)
         time.sleep(10)
         elementos = self.buscar_elemento()
-        self.buscar_valor(elementos)
+        _, xpath = self.buscar_valor(elementos)
 
         print(self.valor_atual)
+        if xpath:
+            self.monitorar()
 
 
 if __name__ == '__main__':
